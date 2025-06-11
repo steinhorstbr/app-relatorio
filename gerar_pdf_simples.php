@@ -1,9 +1,8 @@
 <?php
 /**
  * ================================================
- * ARQUIVO: gerar_pdf_simples.php
- * DESCRIÇÃO: Geração de PDF usando TCPDF (mais compatível)
- * SUBSTITUA O gerar_pdf.php por este arquivo
+ * ARQUIVO: gerar_pdf_simples.php (VERSÃO 2)
+ * DESCRIÇÃO: Geração de PDF atualizada com novos campos
  * ================================================
  */
 
@@ -27,81 +26,56 @@ try {
         throw new Exception("Relatório não encontrado");
     }
 
-    // Buscar serviços
+    // Buscar serviços do relatório
     $stmt = $pdo->prepare("SELECT * FROM servicos WHERE relatorio_id = ? ORDER BY data_execucao DESC, created_at DESC");
     $stmt->execute([$relatorio_id]);
     $servicos = $stmt->fetchAll();
 
+    // Estatísticas por tipo de serviço
+    $stmt = $pdo->prepare("
+        SELECT 
+            SUM(tipo_reparo) as total_reparos,
+            SUM(tipo_construcao) as total_construcoes,
+            SUM(tipo_ceo) as total_ceos,
+            SUM(tipo_cto) as total_ctos,
+            SUM(CASE WHEN tipo_reparo = 1 AND status = 'concluido' THEN 1 ELSE 0 END) as reparos_concluidos,
+            SUM(CASE WHEN tipo_construcao = 1 AND status = 'concluido' THEN 1 ELSE 0 END) as construcoes_concluidas,
+            SUM(CASE WHEN tipo_ceo = 1 AND status = 'concluido' THEN 1 ELSE 0 END) as ceos_concluidos,
+            SUM(CASE WHEN tipo_cto = 1 AND status = 'concluido' THEN 1 ELSE 0 END) as ctos_concluidos
+        FROM servicos 
+        WHERE relatorio_id = ?
+    ");
+    $stmt->execute([$relatorio_id]);
+    $tipos_stats = $stmt->fetch();
+
     // Log da geração
-    logActivity('GERAR_PDF', "PDF gerado para relatório $relatorio_id");
+    logActivity('GERAR_PDF', "PDF v2 gerado para relatório $relatorio_id");
 
 } catch (Exception $e) {
     die('Erro: ' . $e->getMessage());
 }
 
-// ================================================
-// IMPLEMENTAÇÃO TCPDF (MAIS SIMPLES E COMPATÍVEL)
-// ================================================
+// Função para obter tipos de serviço
+function getTiposServico($servico) {
+    $tipos = [];
+    if ($servico['tipo_reparo']) $tipos[] = '🔧 Reparo';
+    if ($servico['tipo_construcao']) $tipos[] = '🏗️ Construção';
+    if ($servico['tipo_ceo']) $tipos[] = '📡 CEO';
+    if ($servico['tipo_cto']) $tipos[] = '📦 CTO';
+    return $tipos;
+}
 
-// Classe TCPDF Simplificada (incorporada)
-class SimplePDF {
-    private $content = '';
-    private $title = '';
-    
-    public function __construct($title = 'Documento PDF') {
-        $this->title = $title;
-    }
-    
-    public function addContent($html) {
-        $this->content .= $html;
-    }
-    
-    public function output($filename = 'documento.pdf') {
-        // Cabeçalhos para download de PDF
-        header('Content-Type: application/pdf');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        header('Cache-Control: private, max-age=0, must-revalidate');
-        header('Pragma: public');
-        
-        // Para demonstração, vamos gerar um HTML otimizado para conversão
-        // Em produção real, use wkhtmltopdf ou biblioteca similar
-        
-        echo $this->generatePDFContent();
-    }
-    
-    private function generatePDFContent() {
-        // Retorna HTML formatado para conversão em PDF
-        $html = '<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>' . htmlspecialchars($this->title) . '</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; }
-        .footer { margin-top: 30px; border-top: 1px solid #333; padding-top: 10px; }
-        @media print { body { margin: 0; } }
-    </style>
-</head>
-<body>
-    ' . $this->content . '
-    <script>
-        window.onload = function() {
-            window.print();
-        };
-    </script>
-</body>
-</html>';
-        
-        return $html;
+// Contar total de fotos
+$total_fotos = 0;
+foreach ($servicos as $servico) {
+    for ($i = 1; $i <= 4; $i++) {
+        if ($servico["foto_$i"] && file_exists($config['upload_dir'] . $servico["foto_$i"])) {
+            $total_fotos++;
+        }
     }
 }
 
-// ================================================
-// USAR SOLUÇÃO NATIVA MAIS SIMPLES
-// ================================================
-
-// Gerar HTML para PDF usando recursos nativos do PHP
+// Gerar HTML para PDF
 ob_start();
 ?>
 <!DOCTYPE html>
@@ -225,195 +199,282 @@ ob_start();
             color: #7f8c8d;
             text-transform: uppercase;
         }
+
+        /* Estatísticas por tipo */
+        .tipos-section {
+            background: #e8f4fd;
+            padding: 20px;
+            margin-bottom: 25px;
+            border-radius: 5px;
+            border-left: 4px solid #3498db;
+        }
+
+        .tipos-grid {
+            display: table;
+            width: 100%;
+            margin-top: 15px;
+        }
+
+        .tipos-row {
+            display: table-row;
+        }
+
+        .tipo-cell {
+            display: table-cell;
+            width: 25%;
+            text-align: center;
+            padding: 15px 10px;
+            background: white;
+            border: 1px solid #ddd;
+        }
+
+        .tipo-icon {
+            font-size: 18px;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .tipo-numbers {
+            font-size: 9px;
+            color: #666;
+            margin-top: 5px;
+        }
         
         .service {
+            border: 1px solid #ddd;
             margin-bottom: 25px;
-            border: 1px solid #bdc3c7;
+            padding: 20px;
             border-radius: 5px;
-            overflow: hidden;
             page-break-inside: avoid;
+            background: white;
         }
         
         .service-header {
-            background: #2980b9;
+            background: #3498db;
             color: white;
-            padding: 12px 15px;
-            font-weight: bold;
+            padding: 15px 20px;
+            margin: -20px -20px 20px -20px;
+            border-radius: 5px 5px 0 0;
         }
         
         .service-title {
             font-size: 14px;
+            font-weight: bold;
             float: left;
+            max-width: 70%;
         }
         
         .service-status {
             float: right;
-            background: rgba(255,255,255,0.2);
-            padding: 4px 8px;
-            border-radius: 10px;
-            font-size: 10px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 9px;
+            font-weight: bold;
             text-transform: uppercase;
         }
         
-        .service-body {
-            padding: 15px;
-            background: white;
+        .status-concluido { background: #27ae60; }
+        .status-andamento { background: #f39c12; }
+        .status-pendente { background: #e74c3c; }
+
+        /* Tags de tipos de serviço */
+        .service-tipos {
+            margin: 15px 0;
+            clear: both;
         }
-        
-        .service-info-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
-        }
-        
-        .service-info-table td {
-            padding: 8px;
-            border: 1px solid #ecf0f1;
-            background: #f8f9fa;
-            width: 50%;
-            vertical-align: top;
-        }
-        
-        .service-info-label {
+
+        .tipo-tag {
+            display: inline-block;
+            background: #fd79a8;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 10px;
+            font-size: 8px;
             font-weight: bold;
-            color: #2c3e50;
-            font-size: 11px;
-            margin-bottom: 3px;
+            margin-right: 5px;
+            margin-bottom: 5px;
         }
         
-        .photos-section {
-            margin: 20px 0;
-            page-break-inside: avoid;
-        }
-        
-        .photos-table {
+        .service-info {
+            display: table;
             width: 100%;
-            border-collapse: collapse;
+            margin-bottom: 20px;
+            clear: both;
         }
         
-        .photo-cell {
+        .service-info-row {
+            display: table-row;
+        }
+        
+        .service-info-cell {
+            display: table-cell;
             width: 50%;
-            text-align: center;
-            padding: 10px;
+            padding: 8px;
+            background: #f8f9fa;
             border: 1px solid #ddd;
             vertical-align: top;
         }
         
-        .photo-title {
-            font-weight: bold;
+        .service-info-cell strong {
+            display: block;
             color: #2c3e50;
-            margin-bottom: 10px;
-            font-size: 12px;
+            font-size: 9px;
+            margin-bottom: 3px;
+            text-transform: uppercase;
         }
         
-        .photo-placeholder {
-            width: 100%;
-            height: 120px;
-            background: #ecf0f1;
-            border: 2px dashed #bdc3c7;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #7f8c8d;
-            font-style: italic;
-            font-size: 11px;
+        /* Grid de 4 fotos */
+        .fotos {
+            margin: 20px 0;
+            page-break-inside: avoid;
         }
         
-        .photo-img {
-            max-width: 100%;
-            max-height: 150px;
-            border: 1px solid #bdc3c7;
-            border-radius: 3px;
-        }
-        
-        .comments {
-            background: #f8f9fa;
-            padding: 15px;
-            border-left: 4px solid #3498db;
-            margin-top: 15px;
-            border-radius: 0 3px 3px 0;
-        }
-        
-        .comments-title {
-            font-weight: bold;
-            color: #2c3e50;
-            margin-bottom: 10px;
-            font-size: 12px;
-        }
-        
-        .comments-text {
-            line-height: 1.6;
-            color: #555;
-            font-size: 11px;
-        }
-        
-        .observacoes {
-            background: #e8f6fd;
-            padding: 15px;
-            margin-bottom: 25px;
-            border-left: 4px solid #3498db;
-            border-radius: 0 5px 5px 0;
-        }
-        
-        .observacoes h3 {
-            color: #2c3e50;
-            margin-bottom: 10px;
-            font-size: 14px;
-        }
-        
-        .footer {
-            margin-top: 40px;
-            border-top: 2px solid #2c3e50;
-            padding-top: 20px;
-            text-align: center;
-        }
-        
-        .signatures {
-            margin-top: 30px;
-        }
-        
-        .signatures-table {
+        .fotos-grid {
+            display: table;
             width: 100%;
             border-collapse: collapse;
         }
         
-        .signature-cell {
-            width: 33.33%;
-            text-align: center;
-            padding: 20px 10px;
-            vertical-align: bottom;
+        .fotos-row {
+            display: table-row;
         }
         
-        .signature-line {
-            border-top: 1px solid #2c3e50;
-            margin-top: 50px;
-            padding-top: 8px;
+        .foto-cell {
+            display: table-cell;
+            width: 50%;
+            text-align: center;
+            padding: 10px;
+            vertical-align: top;
+            border: 1px solid #ddd;
+        }
+        
+        .foto-cell h4 {
+            margin-bottom: 5px;
+            color: #2c3e50;
+            font-size: 10px;
+        }
+
+        .foto-description {
+            font-size: 8px;
+            color: #666;
+            font-style: italic;
+            margin-bottom: 8px;
+            min-height: 12px;
+        }
+        
+        .foto-cell img {
+            max-width: 100%;
+            height: auto;
+            max-height: 120px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        
+        .no-foto {
+            width: 100%;
+            height: 80px;
+            background: #f0f0f0;
+            border: 1px dashed #ccc;
+            border-radius: 3px;
+            display: table-cell;
+            vertical-align: middle;
+            text-align: center;
+            color: #999;
+            font-style: italic;
+            font-size: 9px;
+        }
+        
+        .comentarios {
+            background: #f8f9fa;
+            padding: 15px;
+            border-left: 3px solid #74b9ff;
+            margin-top: 15px;
+            border-radius: 0 3px 3px 0;
+        }
+        
+        .comentarios h4 {
+            color: #2c3e50;
+            margin-bottom: 10px;
             font-size: 11px;
         }
         
-        .signature-title {
-            font-weight: bold;
-            color: #2c3e50;
-            margin-bottom: 5px;
+        .comentarios-text {
+            line-height: 1.6;
+            color: #555;
+            font-size: 10px;
         }
         
-        .clearfix {
-            clear: both;
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            border-top: 1px solid #ddd;
+            padding-top: 20px;
+            page-break-inside: avoid;
+        }
+        
+        .signatures {
+            display: table;
+            width: 100%;
+            margin-top: 30px;
+        }
+        
+        .signatures-row {
+            display: table-row;
+        }
+        
+        .signature-cell {
+            display: table-cell;
+            width: 33.33%;
+            text-align: center;
+            padding: 0 10px;
+        }
+        
+        .signature-line {
+            border-top: 1px solid #333;
+            margin-top: 40px;
+            padding-top: 8px;
+            font-size: 10px;
+        }
+        
+        .signature-cell strong {
+            display: block;
+            margin-bottom: 3px;
+            color: #2c3e50;
+            font-size: 9px;
+        }
+        
+        .observacoes-gerais {
+            background: #e8f4fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 3px solid #3498db;
+            page-break-inside: avoid;
+        }
+        
+        .observacoes-gerais h3 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 12px;
         }
         
         .page-break {
             page-break-before: always;
         }
         
+        .clearfix {
+            clear: both;
+        }
+
         .no-print {
             display: none;
         }
-        
+
         @media print {
             .no-print { display: none !important; }
             body { margin: 0; }
             .service { page-break-inside: avoid; }
-            .photos-section { page-break-inside: avoid; }
+            .fotos { page-break-inside: avoid; }
         }
     </style>
 </head>
@@ -421,7 +482,7 @@ ob_start();
     <div class="container">
         <!-- Cabeçalho -->
         <div class="header">
-            <h1>📡 Relatório Mensal - Serviços de Fibra Óptica</h1>
+            <h1>📡 Relatório Mensal - Serviços de Fibra Óptica v2.0</h1>
             <h2><?= htmlspecialchars($relatorio['periodo']) ?></h2>
         </div>
 
@@ -483,6 +544,60 @@ ob_start();
             <?php endif; ?>
         </div>
 
+        <!-- Estatísticas por Tipo de Serviço -->
+        <?php if (!empty($tipos_stats) && ($tipos_stats['total_reparos'] > 0 || $tipos_stats['total_construcoes'] > 0 || $tipos_stats['total_ceos'] > 0 || $tipos_stats['total_ctos'] > 0)): ?>
+        <div class="tipos-section">
+            <h3>🔧 Estatísticas por Tipo de Serviço</h3>
+            <div class="tipos-grid">
+                <div class="tipos-row">
+                    <?php if ($tipos_stats['total_reparos'] > 0): ?>
+                    <div class="tipo-cell">
+                        <span class="tipo-icon">🔧</span>
+                        <strong>Reparos</strong>
+                        <div class="tipo-numbers">
+                            Total: <?= $tipos_stats['total_reparos'] ?><br>
+                            Concluídos: <?= $tipos_stats['reparos_concluidos'] ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                    
+                    <?php if ($tipos_stats['total_construcoes'] > 0): ?>
+                    <div class="tipo-cell">
+                        <span class="tipo-icon">🏗️</span>
+                        <strong>Construções</strong>
+                        <div class="tipo-numbers">
+                            Total: <?= $tipos_stats['total_construcoes'] ?><br>
+                            Concluídos: <?= $tipos_stats['construcoes_concluidas'] ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                    
+                    <?php if ($tipos_stats['total_ceos'] > 0): ?>
+                    <div class="tipo-cell">
+                        <span class="tipo-icon">📡</span>
+                        <strong>CEOs</strong>
+                        <div class="tipo-numbers">
+                            Total: <?= $tipos_stats['total_ceos'] ?><br>
+                            Concluídos: <?= $tipos_stats['ceos_concluidos'] ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                    
+                    <?php if ($tipos_stats['total_ctos'] > 0): ?>
+                    <div class="tipo-cell">
+                        <span class="tipo-icon">📦</span>
+                        <strong>CTOs</strong>
+                        <div class="tipo-numbers">
+                            Total: <?= $tipos_stats['total_ctos'] ?><br>
+                            Concluídos: <?= $tipos_stats['ctos_concluidos'] ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <!-- Lista de Serviços -->
         <?php if (empty($servicos)): ?>
             <div style="text-align: center; padding: 40px; background: #f8f9fa; border: 1px solid #ddd; border-radius: 5px;">
@@ -500,84 +615,96 @@ ob_start();
                     <div class="service-title">
                         <?= ($index + 1) . '. ' . htmlspecialchars($servico['titulo']) ?>
                     </div>
-                    <div class="service-status">
+                    <div class="service-status status-<?= $servico['status'] ?>">
                         <?php
-                        $status_labels = [
-                            'concluido' => '✓ Concluído',
-                            'andamento' => '⏳ Em Andamento',
-                            'pendente' => '⏸️ Pendente'
+                        $status_texts = [
+                            'concluido' => 'Concluído',
+                            'andamento' => 'Em Andamento',
+                            'pendente' => 'Pendente'
                         ];
-                        echo $status_labels[$servico['status']];
+                        echo $status_texts[$servico['status']];
                         ?>
                     </div>
                     <div class="clearfix"></div>
                 </div>
 
-                <div class="service-body">
-                    <!-- Informações do Serviço -->
-                    <table class="service-info-table">
-                        <tr>
-                            <td>
-                                <div class="service-info-label">Equipe Responsável:</div>
-                                <?= htmlspecialchars($servico['equipe']) ?>
-                            </td>
-                            <td>
-                                <div class="service-info-label">Técnicos Envolvidos:</div>
-                                <?= htmlspecialchars($servico['tecnicos']) ?>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>
-                                <div class="service-info-label">Data de Execução:</div>
-                                <?= formatDate($servico['data_execucao']) ?>
-                            </td>
-                            <td>
-                                <div class="service-info-label">Local do Serviço:</div>
-                                <?= htmlspecialchars($servico['local_servico']) ?>
-                            </td>
-                        </tr>
-                    </table>
+                <!-- Tags dos tipos de serviço -->
+                <div class="service-tipos">
+                    <?php foreach (getTiposServico($servico) as $tipo): ?>
+                    <span class="tipo-tag"><?= $tipo ?></span>
+                    <?php endforeach; ?>
+                </div>
 
-                    <!-- Fotos -->
-                    <div class="photos-section">
-                        <table class="photos-table">
-                            <tr>
-                                <td class="photo-cell">
-                                    <div class="photo-title">📷 Situação Inicial (Antes)</div>
-                                    <?php if ($servico['foto_antes'] && file_exists($config['upload_dir'] . $servico['foto_antes'])): ?>
-                                        <img src="<?= $config['upload_dir'] . $servico['foto_antes'] ?>" 
-                                             alt="Foto antes do serviço" class="photo-img">
-                                    <?php else: ?>
-                                        <div class="photo-placeholder">Foto não disponível</div>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="photo-cell">
-                                    <div class="photo-title">📷 Situação Final (Depois)</div>
-                                    <?php if ($servico['foto_depois'] && file_exists($config['upload_dir'] . $servico['foto_depois'])): ?>
-                                        <img src="<?= $config['upload_dir'] . $servico['foto_depois'] ?>" 
-                                             alt="Foto depois do serviço" class="photo-img">
-                                    <?php else: ?>
-                                        <div class="photo-placeholder">Foto não disponível</div>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                        </table>
-                    </div>
-
-                    <!-- Comentários -->
-                    <?php if ($servico['comentarios']): ?>
-                    <div class="comments">
-                        <div class="comments-title">💬 Observações Técnicas e Comentários</div>
-                        <div class="comments-text">
-                            <?= nl2br(htmlspecialchars($servico['comentarios'])) ?>
+                <div class="service-info">
+                    <div class="service-info-row">
+                        <div class="service-info-cell">
+                            <strong>Equipe Responsável:</strong>
+                            <?= htmlspecialchars($servico['equipe']) ?>
+                        </div>
+                        <div class="service-info-cell">
+                            <strong>Técnicos Envolvidos:</strong>
+                            <?= htmlspecialchars($servico['tecnicos']) ?>
                         </div>
                     </div>
-                    <?php endif; ?>
-
-                    <!-- Info de registro -->
-                    <div style="text-align: right; margin-top: 15px; font-size: 10px; color: #7f8c8d; font-style: italic;">
-                        Serviço registrado em: <?= formatDateTime($servico['created_at']) ?>
+                    <div class="service-info-row">
+                        <div class="service-info-cell">
+                            <strong>Data de Execução:</strong>
+                            <?= formatDate($servico['data_execucao']) ?>
+                        </div>
+                        <div class="service-info-cell">
+                            <strong>Local do Serviço:</strong>
+                            <?= htmlspecialchars($servico['local_servico']) ?>
+                        </div>
                     </div>
+                </div>
+
+                <!-- Grid de 4 fotos -->
+                <div class="fotos">
+                    <div class="fotos-grid">
+                        <div class="fotos-row">
+                            <?php for ($i = 1; $i <= 2; $i++): ?>
+                            <div class="foto-cell">
+                                <h4>📸 Foto <?= $i ?></h4>
+                                <div class="foto-description">
+                                    <?= htmlspecialchars($servico["descricao_foto_$i"] ?: "Sem descrição") ?>
+                                </div>
+                                <?php if ($servico["foto_$i"] && file_exists($config['upload_dir'] . $servico["foto_$i"])): ?>
+                                    <img src="<?= $config['upload_dir'] . $servico["foto_$i"] ?>" alt="Foto <?= $i ?> do serviço">
+                                <?php else: ?>
+                                    <div class="no-foto">Foto não disponível</div>
+                                <?php endif; ?>
+                            </div>
+                            <?php endfor; ?>
+                        </div>
+                        <div class="fotos-row">
+                            <?php for ($i = 3; $i <= 4; $i++): ?>
+                            <div class="foto-cell">
+                                <h4>📸 Foto <?= $i ?></h4>
+                                <div class="foto-description">
+                                    <?= htmlspecialchars($servico["descricao_foto_$i"] ?: "Sem descrição") ?>
+                                </div>
+                                <?php if ($servico["foto_$i"] && file_exists($config['upload_dir'] . $servico["foto_$i"])): ?>
+                                    <img src="<?= $config['upload_dir'] . $servico["foto_$i"] ?>" alt="Foto <?= $i ?> do serviço">
+                                <?php else: ?>
+                                    <div class="no-foto">Foto não disponível</div>
+                                <?php endif; ?>
+                            </div>
+                            <?php endfor; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <?php if ($servico['comentarios']): ?>
+                <div class="comentarios">
+                    <h4>💬 Observações Técnicas e Comentários</h4>
+                    <div class="comentarios-text">
+                        <?= nl2br(htmlspecialchars($servico['comentarios'])) ?>
+                    </div>
+                </div>
+                <?php endif; ?>
+
+                <div style="text-align: right; margin-top: 15px; font-size: 9px; color: #666; font-style: italic;">
+                    Serviço registrado em: <?= formatDateTime($servico['created_at']) ?>
                 </div>
             </div>
             <?php endforeach; ?>
@@ -587,41 +714,40 @@ ob_start();
         <div class="footer">
             <h3>✍️ Aprovações e Assinaturas</h3>
             <div class="signatures">
-                <table class="signatures-table">
-                    <tr>
-                        <td class="signature-cell">
-                            <div class="signature-line">
-                                <div class="signature-title">Supervisor de Campo</div>
-                                <?= htmlspecialchars($relatorio['supervisor']) ?>
-                            </div>
-                        </td>
-                        <td class="signature-cell">
-                            <div class="signature-line">
-                                <div class="signature-title">Coordenador Técnico</div>
-                                _________________________
-                            </div>
-                        </td>
-                        <td class="signature-cell">
-                            <div class="signature-line">
-                                <div class="signature-title">Gerente de Operações</div>
-                                _________________________
-                            </div>
-                        </td>
-                    </tr>
-                </table>
+                <div class="signatures-row">
+                    <div class="signature-cell">
+                        <div class="signature-line">
+                            <strong>Supervisor de Campo</strong>
+                            <?= htmlspecialchars($relatorio['supervisor']) ?>
+                        </div>
+                    </div>
+                    <div class="signature-cell">
+                        <div class="signature-line">
+                            <strong>Coordenador Técnico</strong>
+                            _________________________
+                        </div>
+                    </div>
+                    <div class="signature-cell">
+                        <div class="signature-line">
+                            <strong>Gerente de Operações</strong>
+                            _________________________
+                        </div>
+                    </div>
+                </div>
             </div>
             
             <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #bdc3c7; font-size: 11px; color: #7f8c8d;">
                 <p><strong>Relatório gerado em:</strong> <?= formatDateTime(date('Y-m-d H:i:s')) ?></p>
-                <p><strong>Sistema:</strong> <?= $config['site_name'] ?></p>
-                <p><strong>Arquivo:</strong> relatorio_<?= $relatorio['id'] ?>_<?= date('Y-m-d') ?>.pdf</p>
+                <p><strong>Sistema:</strong> <?= $config['site_name'] ?> v2.0</p>
+                <p><strong>Total de fotos:</strong> <?= $total_fotos ?> foto(s) anexadas</p>
+                <p><strong>Arquivo:</strong> relatorio_v2_<?= $relatorio['id'] ?>_<?= date('Y-m-d') ?>.pdf</p>
             </div>
         </div>
     </div>
 
     <!-- JavaScript para funcionalidades -->
     <script>
-        // Auto-print quando abrido (para conversão em PDF)
+        // Auto-print quando aberto (para conversão em PDF)
         document.addEventListener('DOMContentLoaded', function() {
             // Aguardar carregamento das imagens antes de imprimir
             let images = document.querySelectorAll('img');
@@ -662,10 +788,20 @@ ob_start();
         });
         
         // Log para debug
-        console.log('PDF gerado para relatório ID:', <?= $relatorio['id'] ?>);
+        console.log('PDF v2 gerado para relatório ID:', <?= $relatorio['id'] ?>);
         console.log('Total de serviços:', <?= count($servicos) ?>);
-        console.log('Fotos encontradas:', document.querySelectorAll('.photo-img').length);
+        console.log('Total de fotos:', <?= $total_fotos ?>);
+        console.log('Estatísticas por tipo:', <?= json_encode($tipos_stats, JSON_UNESCAPED_UNICODE) ?>);
     </script>
+
+    <!-- Instruções para o usuário -->
+    <div class="no-print" style="position: fixed; top: 10px; right: 10px; background: #e74c3c; color: white; padding: 10px; border-radius: 5px; z-index: 1000; font-size: 12px; font-family: Arial;">
+        <strong>📄 Para salvar como PDF:</strong><br>
+        1. Use Ctrl+P (imprimir)<br>
+        2. Escolha "Salvar como PDF"<br>
+        3. Clique em "Salvar"<br>
+        <small style="opacity: 0.8;">Sistema v2.0 - <?= count($servicos) ?> serviços, <?= $total_fotos ?> fotos</small>
+    </div>
 </body>
 </html>
 <?php
@@ -675,23 +811,14 @@ $html_content = ob_get_clean();
 // DEFINIR CABEÇALHOS PARA PDF
 // ================================================
 
-$filename = 'relatorio_' . $relatorio['id'] . '_' . date('Y-m-d') . '.pdf';
+$filename = 'relatorio_v2_' . $relatorio['id'] . '_' . date('Y-m-d') . '.pdf';
 
-// Cabeçalhos que forçam o download e abertura como PDF
+// Cabeçalhos que facilitam a conversão para PDF
 header('Content-Type: text/html; charset=utf-8');
 header('Content-Disposition: inline; filename="' . $filename . '"');
 header('Cache-Control: no-cache, must-revalidate');
 header('Expires: Sat, 26 Jul 1997 05:00:00 GMT');
 
-// Adicionar meta tags para melhor conversão em PDF
+// Retornar o conteúdo HTML
 echo $html_content;
-
-// Instruções para o usuário
-echo '
-<div class="no-print" style="position: fixed; top: 10px; right: 10px; background: #e74c3c; color: white; padding: 10px; border-radius: 5px; z-index: 1000; font-size: 12px; font-family: Arial;">
-    <strong>Para salvar como PDF:</strong><br>
-    1. Use Ctrl+P (imprimir)<br>
-    2. Escolha "Salvar como PDF"<br>
-    3. Clique em "Salvar"
-</div>';
 ?>
