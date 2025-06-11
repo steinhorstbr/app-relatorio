@@ -1,0 +1,13 @@
+# Proteger diretório de uploads
+Options -Indexes
+DirectoryIndex index.html
+
+# Bloquear execução de scripts PHP
+<Files *.php>
+    Require all denied
+</Files>
+
+# Permitir apenas imagens
+<FilesMatch "\.(jpg|jpeg|png|gif)$">
+    Require all granted
+</FilesMatch>
